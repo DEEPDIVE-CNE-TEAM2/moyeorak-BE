@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,7 +27,6 @@ public class EnrollmentService {
     private final UserRepository userRepository;
     private final ProgramRepository programRepository;
 
-    // ✅ 수강 신청
     @Transactional
     public EnrollmentResponse enrollByEmail(String email, EnrollmentRequest request) {
         log.info("[ENROLL] 수강 신청 요청 by {}", email);
@@ -36,27 +34,8 @@ public class EnrollmentService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalArgumentException("사용자 정보가 없습니다."));
 
-        String[] dateParts = request.getUsagePeriod().split(" ~ ");
-        String[] timeParts = request.getClassTime().split(" ~ ");
-
-        if (dateParts.length != 2 || timeParts.length != 2) {
-            throw new IllegalArgumentException("기간 또는 시간이 올바르지 않습니다.");
-        }
-
-        LocalDate usageStartDate = LocalDate.parse(dateParts[0].trim());
-        LocalDate usageEndDate = LocalDate.parse(dateParts[1].trim());
-        LocalTime classStartTime = LocalTime.parse(timeParts[0].trim());
-        LocalTime classEndTime = LocalTime.parse(timeParts[1].trim());
-
-        Program program = programRepository
-                .findByTitleAndFacility_LocationAndUsageStartDateAndUsageEndDateAndClassStartTimeAndClassEndTime(
-                        request.getProgramTitle(),
-                        request.getLocation(),
-                        usageStartDate,
-                        usageEndDate,
-                        classStartTime,
-                        classEndTime
-                ).orElseThrow(() -> new IllegalArgumentException("프로그램 정보를 찾을 수 없습니다."));
+        Program program = programRepository.findById(request.getProgramId())
+                .orElseThrow(() -> new IllegalArgumentException("프로그램 정보가 없습니다."));
 
         if (enrollmentRepository.existsByUserIdAndProgramId(user.getId(), program.getId())) {
             throw new IllegalArgumentException("이미 신청한 프로그램입니다.");
@@ -75,7 +54,8 @@ public class EnrollmentService {
                 .classEndTime(program.getClassEndTime())
                 .build();
 
-        return toResponse(enrollment, user);
+        Enrollment saved = enrollmentRepository.save(enrollment);
+        return toResponse(saved, user);
     }
 
     public List<EnrollmentResponse> getMyEnrollments(Long userId) {
@@ -134,7 +114,6 @@ public class EnrollmentService {
                 .orElseThrow(() -> new IllegalArgumentException("수강 신청이 존재하지 않습니다."));
     }
 
-    // ✅ 관내 여부 판단용 헬퍼
     private boolean isInRegion(User user, Program program) {
         Long userRegionId = Optional.ofNullable(user.getRegion()).map(r -> r.getId()).orElse(null);
         Long programRegionId = Optional.ofNullable(program.getRegion()).map(r -> r.getId()).orElse(null);
@@ -145,7 +124,6 @@ public class EnrollmentService {
         return inRegion;
     }
 
-    // ✅ 사용자 포함된 Enrollment → DTO 변환 (regionLabel만 사용)
     private EnrollmentResponse toResponse(Enrollment e, User user) {
         Program program = e.getProgram();
         boolean inRegion = isInRegion(user, program);
@@ -164,7 +142,8 @@ public class EnrollmentService {
                 .classStartTime(program.getClassStartTime())
                 .classEndTime(program.getClassEndTime())
                 .instructorName(program.getInstructorName())
-                .regionLabel(regionLabel)  // ✅ 텍스트로 전달
+                .regionLabel(regionLabel)
+                .cancelEndDate(program.getCancelEndDate())
                 .build();
     }
 }
